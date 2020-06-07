@@ -2,8 +2,12 @@ package bot
 
 import (
 	"bitbucket.org/allenb123/socketio"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"math/rand"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -125,9 +129,33 @@ func (bt *Bot) initHandlers() {
 		case "force":
 			bt.cl.Emit("set_force_start", room, true)
 		case "speed":
-			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": fields[1]})
+			speed := "2"
+			if len(fields) >= 2 {
+				speed = fields[1]
+			}
+			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": speed})
 		case "map":
 			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": strings.Join(fields[1:], " ")})
+		case "maplist":
+			list := "top"
+			if len(fields) >= 2 {
+				list = strings.ToLower(fields[1])
+			}
+			resp, err := http.Get("http://generals.io/api/maps/lists/" + list)
+			if err != nil {
+				log.Println(err)
+				break
+			}
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println(err)
+			}
+			out := make([]map[string]interface{}, 0)
+			json.Unmarshal(body, &out)
+			if len(out) != 0 {
+				map_ := fmt.Sprint(out[rand.Intn(len(out))]["title"])
+				bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": map_})
+			}
 		case "empty":
 			size := "0.1"
 			if len(fields) >= 2 {
@@ -163,7 +191,7 @@ func (bt *Bot) initHandlers() {
 			}
 
 		case "surrender":
-			if bt.turn >= 2000 {
+			if bt.turn >= 1000 {
 				bt.cl.Disconnect()
 			} else {
 				bt.cl.Emit("chat_message", chatroom, "No.")
@@ -212,11 +240,13 @@ func (bt *Bot) initHandlers() {
 					bt.cl.Emit("chat_message", chatroom, "Trivia game hasn't started yet. Type '/trivia start' to start.")
 					return
 				}
-				err := t.Skip()
+				answer, err := t.Skip()
 				if err != nil {
 					bt.cl.Emit("chat_message", chatroom, err.Error())
 				} else {
 					question, points := t.Question()
+					bt.cl.Emit("chat_message", chatroom, "Answer was: "+answer)
+					time.Sleep(500 * time.Millisecond)
 					bt.cl.Emit("chat_message", chatroom, "Next question: "+question+" [+"+fmt.Sprint(points)+"]")
 				}
 			case "guess":
@@ -271,14 +301,21 @@ func (bt *Bot) initHandlers() {
 		for i := 0; i < len(players); i++ {
 			bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
 		}
-
-		bt.turn += 1
 	})
 
 	bt.cl.On("game_start", func(data ...interface{}) {
+		log.Println("game started")
 		m := data[0].(map[string]interface{})
+
 		playerIndex := int(m["playerIndex"].(float64))
-		bt.state = newState(playerIndex)
+		teamsMap := make(map[int]bool)
+		teams := m["teams"].([]interface{})
+		for player, team := range teams {
+			if team == teams[playerIndex] {
+				teamsMap[player] = true
+			}
+		}
+		bt.state = newState(playerIndex, teamsMap)
 
 		rawSwamps := m["swamps"].([]interface{})
 		swamps := make(map[int]bool)
@@ -308,9 +345,12 @@ func (bt *Bot) initHandlers() {
 		bt.state.update(mapDiff, citiesDiff, generals)
 		from, to, half := bt.state.move()
 		bt.cl.Emit("attack", from, to, half)
+
+		bt.turn += 1
 	})
 
 	bt.cl.On("game_over", func(data ...interface{}) {
+		log.Println("game ended")
 		bt.cl.Disconnect()
 	})
 }
@@ -318,12 +358,13 @@ func (bt *Bot) initHandlers() {
 func (bt *Bot) JoinCustom(room string, private bool) error {
 	bt.cl.Emit("join_private", room, bt.id, bt.token)
 	bt.cl.Emit("chat_message", "chat_custom_queue_"+room, bt.initmsg)
-	if !private {
-		go func() {
-			time.Sleep(1 * time.Second)
+	go func() {
+		time.Sleep(1 * time.Second)
+		if !private {
 			bt.cl.Emit("make_custom_public", room)
-		}()
-	}
+		}
+		bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": 2})
+	}()
 	return nil
 }
 

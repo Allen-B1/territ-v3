@@ -10,11 +10,14 @@ type state struct {
 	cities      []int
 	generals    []int
 	playerIndex int
+	allies      map[int]bool
 }
 
-func newState(playerIndex int) *state {
+// TODO: Treat allies like same person
+func newState(playerIndex int, allies map[int]bool) *state {
 	s := new(state)
 	s.playerIndex = playerIndex
+	s.allies = allies
 	return s
 }
 
@@ -55,7 +58,7 @@ func (s *state) move() (int, int, bool) {
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
-				if terrain[adj] != s.playerIndex && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !s.swamps[adj] {
+				if !s.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !s.swamps[adj] {
 					return i, adj, false
 				}
 			}
@@ -65,7 +68,7 @@ func (s *state) move() (int, int, bool) {
 	for i := 0; i < 256; i++ {
 		i := rand.Intn(size)
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {
-			if s.generals[s.playerIndex] == i && armies[i] >= 50 {
+			if s.generals[s.playerIndex] == i && armies[i] >= 30 {
 				continue
 			}
 
@@ -74,7 +77,7 @@ func (s *state) move() (int, int, bool) {
 				adjs[i], adjs[j] = adjs[j], adjs[i]
 			})
 			for _, adj := range adjs {
-				if terrain[adj] == s.playerIndex {
+				if s.allies[terrain[adj]] {
 					return i, adj, false
 				}
 			}

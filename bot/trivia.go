@@ -40,13 +40,14 @@ func NewTrivia() *Trivia {
 	return t
 }
 
-func (t *Trivia) Skip() error {
+func (t *Trivia) Skip() (string, error) {
 	if len(t.guessed) < 2 {
-		return fmt.Errorf("At least 2 people must guess to skip")
+		return "", fmt.Errorf("At least 2 people must guess to skip")
 	}
 
+	answer := t.answer
 	t.next()
-	return nil
+	return answer, nil
 }
 
 func (t *Trivia) next() error {

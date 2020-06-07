@@ -2,6 +2,7 @@ package bot
 
 import (
 	"encoding/json"
+	"fmt"
 	"html"
 	"io/ioutil"
 	"log"
@@ -15,6 +16,7 @@ type Trivia struct {
 	question string
 	qScore   int
 	answer   string
+	guessed  map[string]bool
 }
 
 type tdbResults struct {
@@ -30,11 +32,21 @@ type tdbItem struct {
 func NewTrivia() *Trivia {
 	t := new(Trivia)
 	t.scores = make(map[string]int)
+	t.guessed = make(map[string]bool)
 	err := t.next()
 	if err != nil {
 		log.Println(err)
 	}
 	return t
+}
+
+func (t *Trivia) Skip() error {
+	if len(t.guessed) < 2 {
+		return fmt.Errorf("At least 2 people must guess to skip")
+	}
+
+	t.next()
+	return nil
 }
 
 func (t *Trivia) next() error {
@@ -89,7 +101,10 @@ func (t *Trivia) Guess(answer string, person string) string {
 		t.scores[person] += t.qScore
 		answer := t.answer
 		t.next()
+		t.guessed = make(map[string]bool)
 		return answer
+	} else {
+		t.guessed[person] = true
 	}
 	return ""
 }

@@ -5,8 +5,10 @@ import (
 )
 
 type state struct {
+	swamps      map[int]bool
 	map_        []int
 	cities      []int
+	generals    []int
 	playerIndex int
 }
 
@@ -32,9 +34,14 @@ func patch(old []int, diff []int) []int {
 	return out
 }
 
-func (s *state) update(mapDiff []int, citiesDiff []int) {
+func (s *state) init(swamps map[int]bool) {
+	s.swamps = swamps
+}
+
+func (s *state) update(mapDiff []int, citiesDiff []int, generals []int) {
 	s.map_ = patch(s.map_, mapDiff)
 	s.cities = patch(s.cities, citiesDiff)
+	s.generals = generals
 }
 
 func (s *state) move() (int, int, bool) {
@@ -48,7 +55,7 @@ func (s *state) move() (int, int, bool) {
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
-				if terrain[adj] != s.playerIndex && terrain[adj] != -2 && armies[i] > armies[adj]+1 {
+				if terrain[adj] != s.playerIndex && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !s.swamps[adj] {
 					return i, adj, false
 				}
 			}
@@ -58,9 +65,19 @@ func (s *state) move() (int, int, bool) {
 	for i := 0; i < 256; i++ {
 		i := rand.Intn(size)
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {
+			if s.generals[s.playerIndex] == i && armies[i] >= 50 {
+				continue
+			}
+
 			adjs := adjacentTiles(i, width, height)
-			adj := adjs[rand.Intn(len(adjs))]
-			return i, adj, false
+			rand.Shuffle(len(adjs), func(i, j int) {
+				adjs[i], adjs[j] = adjs[j], adjs[i]
+			})
+			for _, adj := range adjs {
+				if terrain[adj] == s.playerIndex {
+					return i, adj, false
+				}
+			}
 		}
 	}
 

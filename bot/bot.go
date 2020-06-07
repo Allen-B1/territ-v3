@@ -41,6 +41,7 @@ type Bot struct {
 
 	// Information about the game
 	state *state
+	turn  int
 }
 
 func New(server Server, id string, token string) (*Bot, error) {
@@ -161,6 +162,12 @@ func (bt *Bot) initHandlers() {
 				}()
 			}
 
+		case "surrender":
+			if bt.turn >= 2000 {
+				bt.cl.Disconnect()
+			} else {
+				bt.cl.Emit("chat_message", chatroom, "No.")
+			}
 		case "trivia":
 			if len(fields) < 2 {
 				go func() {
@@ -185,6 +192,8 @@ func (bt *Bot) initHandlers() {
 					bt.trivia[chatroom] = NewTrivia()
 					t := bt.trivia[chatroom]
 					question, points := t.Question()
+					bt.cl.Emit("chat_message", chatroom, "Let's get started! No Googling (or Binging or Yahooing or DuckDuckGoing) allowed.")
+					time.Sleep(500 * time.Millisecond)
 					bt.cl.Emit("chat_message", chatroom, "First question: "+question+" [+"+fmt.Sprint(points)+"]")
 				} else {
 					bt.cl.Emit("chat_message", chatroom, "Trivia game already started.")
@@ -197,6 +206,19 @@ func (bt *Bot) initHandlers() {
 				}
 				question, points := t.Question()
 				bt.cl.Emit("chat_message", chatroom, "Current question: "+question+" [+"+fmt.Sprint(points)+"]")
+			case "skip":
+				t := bt.trivia[chatroom]
+				if t == nil {
+					bt.cl.Emit("chat_message", chatroom, "Trivia game hasn't started yet. Type '/trivia start' to start.")
+					return
+				}
+				err := t.Skip()
+				if err != nil {
+					bt.cl.Emit("chat_message", chatroom, err.Error())
+				} else {
+					question, points := t.Question()
+					bt.cl.Emit("chat_message", chatroom, "Next question: "+question+" [+"+fmt.Sprint(points)+"]")
+				}
 			case "guess":
 				t := bt.trivia[chatroom]
 				if t == nil {
@@ -249,27 +271,41 @@ func (bt *Bot) initHandlers() {
 		for i := 0; i < len(players); i++ {
 			bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
 		}
+
+		bt.turn += 1
 	})
 
 	bt.cl.On("game_start", func(data ...interface{}) {
 		m := data[0].(map[string]interface{})
 		playerIndex := int(m["playerIndex"].(float64))
 		bt.state = newState(playerIndex)
+
+		rawSwamps := m["swamps"].([]interface{})
+		swamps := make(map[int]bool)
+		for _, swamp := range rawSwamps {
+			swamps[int(swamp.(float64))] = true
+		}
+		bt.state.init(swamps)
 	})
 
 	bt.cl.On("game_update", func(data ...interface{}) {
 		m := data[0].(map[string]interface{})
 		rawMapDiff := m["map_diff"].([]interface{})
 		rawCitiesDiff := m["cities_diff"].([]interface{})
+		rawGenerals := m["generals"].([]interface{})
 		mapDiff := make([]int, len(rawMapDiff))
 		citiesDiff := make([]int, len(rawCitiesDiff))
+		generals := make([]int, len(rawGenerals))
 		for i, v := range rawMapDiff {
 			mapDiff[i] = int(v.(float64))
 		}
 		for i, v := range rawCitiesDiff {
 			citiesDiff[i] = int(v.(float64))
 		}
-		bt.state.update(mapDiff, citiesDiff)
+		for i, v := range rawGenerals {
+			generals[i] = int(v.(float64))
+		}
+		bt.state.update(mapDiff, citiesDiff, generals)
 		from, to, half := bt.state.move()
 		bt.cl.Emit("attack", from, to, half)
 	})

@@ -166,6 +166,7 @@ func (bt *Bot) initHandlers() {
 				go func() {
 					msgs := []string{
 						"* /trivia start",
+						"* /trivia question",
 						"* /trivia guess [GUESS]",
 						"* /trivia scores",
 						"Questions taken from the Open Trivia Database",

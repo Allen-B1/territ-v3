@@ -32,7 +32,14 @@ type Bot struct {
 	username string
 	number   int
 
-	room  roomInfo
+	// map chat => trivia :)
+	trivia map[string]*Trivia
+
+	// Information about the room
+	// No way to tell *which* room, unfortunately :(
+	room roomInfo
+
+	// Information about the game
 	state *state
 }
 
@@ -46,6 +53,8 @@ func New(server Server, id string, token string) (*Bot, error) {
 
 	bt.room = roomInfo{}
 	bt.room.teams = make(map[string]int)
+
+	bt.trivia = make(map[string]*Trivia)
 
 	var err error
 	bt.cl, err = socketio.New(string(server), false)
@@ -75,8 +84,12 @@ func (bt *Bot) initHandlers() {
 			log.Println("You are: " + bt.username + " (" + fmt.Sprint(bt.number) + ")")
 		}
 
+		if author == bt.username {
+			return
+		}
+
 		if text == "force" || text == "go" {
-			bt.cl.Emit("chat_message", chatroom, "Use /force to force start")
+			bt.cl.Emit("chat_message", chatroom, "Type '/force' to force start")
 		}
 
 		if !strings.HasPrefix(text, fmt.Sprint(bt.number)+"/") && !strings.HasPrefix(text, "/") {
@@ -99,6 +112,15 @@ func (bt *Bot) initHandlers() {
 		switch fields[0] {
 		case "echo":
 			bt.cl.Emit("chat_message", chatroom, strings.Join(fields[1:], " "))
+		case "whoami":
+			bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"]))
+		case "pwd":
+			if room != "" {
+				bt.cl.Emit("chat_message", chatroom, "/games/"+room)
+			}
+		case "bash":
+			bt.cl.Emit("chat_message", chatroom, "Nice try.")
+
 		case "force":
 			bt.cl.Emit("set_force_start", room, true)
 		case "speed":
@@ -122,20 +144,95 @@ func (bt *Bot) initHandlers() {
 			bt.cl.Emit("set_custom_team", room, bt.room.teams[author])
 		case "help":
 			if bt.number == 1 {
-				bt.cl.Emit("chat_message", chatroom, "...5 seconds")
 				go func() {
-					time.Sleep(5 * time.Second)
 					msgs := []string{
 						"Incomplete list of commands:",
-						"/force",
-						"/speed [1|2|3|4]",
-						"/map MAP",
-						"/team",
+						"* /force",
+						"* /speed [1|2|3|4]",
+						"* /map MAP",
+						"* /team",
 						"Source code: https://github.com/allen-b1/territ-v3",
 					}
 
 					for _, msg := range msgs {
 						bt.cl.Emit("chat_message", chatroom, msg)
+						time.Sleep(500 * time.Millisecond)
+					}
+				}()
+			}
+
+		case "trivia":
+			if len(fields) < 2 {
+				go func() {
+					msgs := []string{
+						"* /trivia start",
+						"* /trivia guess [GUESS]",
+						"* /trivia scores",
+						"Questions taken from the Open Trivia Database",
+					}
+
+					for _, msg := range msgs {
+						bt.cl.Emit("chat_message", chatroom, msg)
+						time.Sleep(500 * time.Millisecond)
+					}
+				}()
+				break
+			}
+			switch fields[1] {
+			case "start":
+				if bt.trivia[chatroom] == nil {
+					bt.trivia[chatroom] = NewTrivia()
+					t := bt.trivia[chatroom]
+					question, points := t.Question()
+					bt.cl.Emit("chat_message", chatroom, "First question: "+question+" [+"+fmt.Sprint(points)+"]")
+				} else {
+					bt.cl.Emit("chat_message", chatroom, "Trivia game already started.")
+				}
+			case "question":
+				t := bt.trivia[chatroom]
+				if t == nil {
+					bt.cl.Emit("chat_message", chatroom, "Trivia game hasn't started yet. Type '/trivia start' to start.")
+					return
+				}
+				question, points := t.Question()
+				bt.cl.Emit("chat_message", chatroom, "Current question: "+question+" [+"+fmt.Sprint(points)+"]")
+			case "guess":
+				t := bt.trivia[chatroom]
+				if t == nil {
+					bt.cl.Emit("chat_message", chatroom, "Trivia game hasn't started yet. Type '/trivia start' to start.")
+					return
+				}
+				_, points := t.Question()
+				answer := t.Guess(strings.Join(fields[2:], " "), author)
+				if answer != "" {
+					bt.cl.Emit("chat_message", chatroom, "Correct! Answer was: "+answer)
+					scores, order := t.Scores()
+					go func() {
+						time.Sleep(500 * time.Millisecond)
+						for _, player := range order {
+							if player == author {
+								bt.cl.Emit("chat_message", chatroom, player+": "+fmt.Sprint(scores[player])+" (+"+fmt.Sprint(points)+")")
+							} else {
+								bt.cl.Emit("chat_message", chatroom, player+": "+fmt.Sprint(scores[player]))
+							}
+							time.Sleep(500 * time.Millisecond)
+						}
+						question, points := t.Question()
+						bt.cl.Emit("chat_message", chatroom, "Next question: "+question+" [+"+fmt.Sprint(points)+"]")
+					}()
+				} else {
+					bt.cl.Emit("chat_message", chatroom, "Wrong!")
+				}
+			case "scores":
+				t := bt.trivia[chatroom]
+				if t == nil {
+					bt.cl.Emit("chat_message", chatroom, "Trivia game hasn't started yet. Type '/trivia start' to start.")
+					return
+				}
+				scores, order := t.Scores()
+				go func() {
+					for _, player := range order {
+						bt.cl.Emit("chat_message", chatroom, player+": "+fmt.Sprint(scores[player]))
 						time.Sleep(500 * time.Millisecond)
 					}
 				}()

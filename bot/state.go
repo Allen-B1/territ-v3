@@ -13,7 +13,6 @@ type state struct {
 	allies      map[int]bool
 }
 
-// TODO: Treat allies like same person
 func newState(playerIndex int, allies map[int]bool) *state {
 	s := new(state)
 	s.playerIndex = playerIndex

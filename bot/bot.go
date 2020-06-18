@@ -114,7 +114,7 @@ func (bt *Bot) initHandlers() {
 			room = chatroom[len("chat_custom_queue_"):]
 		}
 
-		switch fields[0] {
+		switch strings.ToLower(fields[0]) {
 		case "echo":
 			bt.cl.Emit("chat_message", chatroom, strings.Join(fields[1:], " "))
 		case "whoami":
@@ -156,6 +156,10 @@ func (bt *Bot) initHandlers() {
 				map_ := fmt.Sprint(out[rand.Intn(len(out))]["title"])
 				bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": map_})
 			}
+		case "test":
+			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": "Plots", "game_speed": 4})
+			bt.cl.Emit("set_force_start", room, true)
+
 		case "empty":
 			size := "0.1"
 			if len(fields) >= 2 {
@@ -171,6 +175,7 @@ func (bt *Bot) initHandlers() {
 			})
 		case "team":
 			bt.cl.Emit("set_custom_team", room, bt.room.teams[author])
+
 		case "help":
 			if bt.number == 1 {
 				go func() {
@@ -189,6 +194,9 @@ func (bt *Bot) initHandlers() {
 					}
 				}()
 			}
+
+		case "public":
+			bt.cl.Emit("make_custom_public", room)
 
 		case "surrender":
 			if bt.turn >= 1000 {
@@ -214,7 +222,7 @@ func (bt *Bot) initHandlers() {
 				}()
 				break
 			}
-			switch fields[1] {
+			switch strings.ToLower(fields[1]) {
 			case "start":
 				if bt.trivia[chatroom] == nil {
 					bt.trivia[chatroom] = NewTrivia()
@@ -296,25 +304,30 @@ func (bt *Bot) initHandlers() {
 	bt.cl.On("queue_update", func(data ...interface{}) {
 		m := data[0].(map[string]interface{})
 
-		players := m["usernames"].([]interface{})
-		teams := m["teams"].([]interface{})
-		for i := 0; i < len(players); i++ {
-			bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
+		players, ok := m["usernames"].([]interface{})
+		if ok {
+			teams := m["teams"].([]interface{})
+			for i := 0; i < len(players); i++ {
+				bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
+			}
 		}
 	})
 
 	bt.cl.On("game_start", func(data ...interface{}) {
-		log.Println("game started")
 		m := data[0].(map[string]interface{})
+		log.Println("game started with", m["usernames"])
 
 		playerIndex := int(m["playerIndex"].(float64))
 		teamsMap := make(map[int]bool)
-		teams := m["teams"].([]interface{})
-		for player, team := range teams {
-			if team == teams[playerIndex] {
-				teamsMap[player] = true
+		teams, ok := m["teams"].([]interface{})
+		if ok {
+			for player, team := range teams {
+				if team == teams[playerIndex] {
+					teamsMap[player] = true
+				}
 			}
 		}
+		teamsMap[playerIndex] = true
 		bt.state = newState(playerIndex, teamsMap)
 
 		rawSwamps := m["swamps"].([]interface{})

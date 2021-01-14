@@ -313,6 +313,11 @@ func (bt *Bot) initHandlers() {
 		}
 	})
 
+	bt.cl.On("ping_tile", func (data ...interface{}) {
+		tile := data[0].(float64)
+		bt.state.ping(int(tile))
+	})
+
 	bt.cl.On("game_start", func(data ...interface{}) {
 		m := data[0].(map[string]interface{})
 		log.Println("game started with", m["usernames"])
@@ -370,14 +375,22 @@ func (bt *Bot) initHandlers() {
 
 func (bt *Bot) JoinCustom(room string, private bool) error {
 	bt.cl.Emit("join_private", room, bt.id, bt.token)
-	bt.cl.Emit("chat_message", "chat_custom_queue_"+room, bt.initmsg)
 	go func() {
 		time.Sleep(1 * time.Second)
+		bt.cl.Emit("chat_message", "chat_custom_queue_"+room, bt.initmsg)
 		if !private {
 			bt.cl.Emit("make_custom_public", room)
 		}
 		bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": 2})
 	}()
+	return nil
+}
+
+func (bt *Bot) Join2v2(team string) error {
+	if bt.server != BOT {
+		return fmt.Errorf("2v2 only available in bot server")
+	}
+	bt.cl.Emit("join_team", team, bt.id, bt.token)
 	return nil
 }
 

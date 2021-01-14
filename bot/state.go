@@ -11,12 +11,14 @@ type state struct {
 	generals    []int
 	playerIndex int
 	allies      map[int]bool
+	pinged    int
 }
 
 func newState(playerIndex int, allies map[int]bool) *state {
 	s := new(state)
 	s.playerIndex = playerIndex
 	s.allies = allies
+	s.pinged = -1
 	return s
 }
 
@@ -45,6 +47,9 @@ func (s *state) update(mapDiff []int, citiesDiff []int, generals []int) {
 	s.cities = patch(s.cities, citiesDiff)
 	s.generals = generals
 }
+func (s *state) ping(tile int) {
+	s.pinged = tile
+}
 
 func (s *state) move() (int, int, bool) {
 	width := s.map_[0]
@@ -53,13 +58,38 @@ func (s *state) move() (int, int, bool) {
 	armies := s.map_[2 : size+2]
 	terrain := s.map_[size+2 : size*2+2]
 
+	pinged := s.pinged
+	if pinged != -1 {
+		adjs := adjacentTiles(pinged, width, height)
+		maxValue := 0
+		maxTile := -1
+		for _, adj := range adjs {
+			if terrain[adj] == s.playerIndex && (s.allies[terrain[pinged]] || armies[adj] > armies[pinged] + 1) {
+				if armies[adj] > maxValue {
+					maxValue = armies[adj]
+					maxTile = adj
+				}
+			}
+		}
+
+		if maxTile != -1 {
+			s.pinged = -1
+			return maxTile, pinged, false
+		}
+	}
+
 	for i := 0; i < size; i++ {
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {
+			possibles := []int{}
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
 				if !s.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !s.swamps[adj] {
-					return i, adj, false
+					possibles = append(possibles, adj)
 				}
+			}
+
+			if len(possibles) > 0 {
+				return i, possibles[rand.Intn(len(possibles))], false
 			}
 		}
 	}

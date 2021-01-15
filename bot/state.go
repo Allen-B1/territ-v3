@@ -11,7 +11,7 @@ type state struct {
 	generals    []int
 	playerIndex int
 	allies      map[int]bool
-	pinged    int
+	pinged      int
 }
 
 func newState(playerIndex int, allies map[int]bool) *state {
@@ -64,7 +64,7 @@ func (s *state) move() (int, int, bool) {
 		maxValue := 0
 		maxTile := -1
 		for _, adj := range adjs {
-			if terrain[adj] == s.playerIndex && (s.allies[terrain[pinged]] || armies[adj] > armies[pinged] + 1) {
+			if terrain[adj] == s.playerIndex && (s.allies[terrain[pinged]] || armies[adj] > armies[pinged]+1) {
 				if armies[adj] > maxValue {
 					maxValue = armies[adj]
 					maxTile = adj

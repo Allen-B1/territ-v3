@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/allen-b1/territ-v3/bot"
+	"math/rand"
+	"time"
 )
 
 var userId string
@@ -25,6 +27,8 @@ func init() {
 func main() {
 	flag.Parse()
 
+	rand.Seed(time.Now().UnixNano())
+
 	srv := bot.NA
 	if server == "bot" {
 		srv = bot.BOT
@@ -45,10 +49,10 @@ func main() {
 		panic(err)
 	}
 
-	domain := map[bot.Server]string {
-		bot.NA: "http://generals.io",
+	domain := map[bot.Server]string{
+		bot.NA:  "http://generals.io",
 		bot.BOT: "http://bot.generals.io",
-		bot.EU: "http://eu.generals.io",
+		bot.EU:  "http://eu.generals.io",
 	}[srv]
 
 	if type_ == "ffa" {
@@ -58,7 +62,7 @@ func main() {
 		err = bt.Join2v2(roomId)
 		fmt.Println(domain + "/teams/" + roomId)
 	} else {
-		err = bt.JoinCustom(roomId, private)	
+		err = bt.JoinCustom(roomId, private)
 		fmt.Println(domain + "/games/" + roomId)
 	}
 	if err != nil {

@@ -2,12 +2,9 @@ package bot
 
 import (
 	"bitbucket.org/allenb123/socketio"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"math/rand"
-	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +21,10 @@ type roomInfo struct {
 	teams map[string]int
 }
 
+func isBot(username string) bool {
+	return strings.HasPrefix(username, "territ") || strings.HasPrefix(username, "[Bot]")
+}
+
 type Bot struct {
 	cl *socketio.Client
 
@@ -35,9 +36,14 @@ type Bot struct {
 
 	username string
 	number   int
+	isHost   bool
+
+	settings settings
 
 	// map chat => trivia :)
 	trivia map[string]*Trivia
+
+	surrenderRequests map[string]bool
 
 	// Information about the room
 	// No way to tell *which* room, unfortunately :(
@@ -56,8 +62,12 @@ func New(server Server, id string, token string) (*Bot, error) {
 	bt.initmsg = "Hi! #" + fmt.Sprint(time.Now().UnixNano()%10000)
 	bt.number = 1
 
+	bt.surrenderRequests = make(map[string]bool)
+
 	bt.room = roomInfo{}
 	bt.room.teams = make(map[string]int)
+
+	bt.settings.Init()
 
 	bt.trivia = make(map[string]*Trivia)
 
@@ -114,78 +124,143 @@ func (bt *Bot) initHandlers() {
 			room = chatroom[len("chat_custom_queue_"):]
 		}
 
-		switch strings.ToLower(fields[0]) {
-		case "echo":
-			bt.cl.Emit("chat_message", chatroom, strings.Join(fields[1:], " "))
-		case "whoami":
-			bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"]))
-		case "pwd":
-			if room != "" {
-				bt.cl.Emit("chat_message", chatroom, "/games/"+room)
+		humanCount := 0
+		botCount := 0
+		for player, _ := range bt.room.teams {
+			if isBot(player) {
+				botCount += 1
+			} else {
+				humanCount += 1
 			}
-		case "bash":
-			bt.cl.Emit("chat_message", chatroom, "Nice try.")
+		}
+
+		switch strings.ToLower(fields[0]) {
+		case "sh":
+			if len(fields) > 1 {
+				switch fields[1] {
+				case "echo":
+					bt.cl.Emit("chat_message", chatroom, strings.Join(fields[2:], " "))
+				case "whoami":
+					go func(username string) {
+						bt.cl.Emit("chat_message", chatroom, "username: "+username)
+						time.Sleep(500 * time.Millisecond)
+						bt.cl.Emit("chat_message", chatroom, "bot: "+fmt.Sprint(isBot(username)))
+					}(m["username"].(string))
+				case "pwd":
+					if room != "" {
+						bt.cl.Emit("chat_message", chatroom, "/games/"+room)
+					} else {
+						bt.cl.Emit("chat_message", chatroom, "pwd: insufficient permissions")
+					}
+				case "cd":
+					dir := strings.Join(fields[2:], " ")
+					if dir == "/" && room != "" {
+						bt.cl.Disconnect()
+					} else if dir == "/" || dir == "/games" || dir == "/games/" {
+						bt.cl.Emit("chat_message", chatroom, "cd: insufficient permissions")
+					} else {
+						bt.cl.Emit("chat_message", chatroom, "cd: no such file or directory")
+					}
+				default:
+					bt.cl.Emit("chat_message", chatroom, fields[1]+": unknown command")
+				}
+			}
 
 		case "force":
 			bt.cl.Emit("set_force_start", room, true)
+
+		// settings
 		case "speed":
-			speed := "2"
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
+			}
+			speed := "4"
 			if len(fields) >= 2 {
 				speed = fields[1]
 			}
 			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": speed})
 		case "map":
-			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": strings.Join(fields[1:], " ")})
-		case "maplist":
-			list := "top"
-			if len(fields) >= 2 {
-				list = strings.ToLower(fields[1])
-			}
-			resp, err := http.Get("http://generals.io/api/maps/lists/" + list)
-			if err != nil {
-				log.Println(err)
+			if !bt.isHost || isBot(m["username"].(string)) {
 				break
 			}
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				log.Println(err)
+			mapName := strings.Join(fields[1:], " ")
+			err := bt.settings.Vote(fmt.Sprint(m["username"]), mapName)
+			if err == settingsInvalidMap {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+", '"+mapName+"' is not a map")
+			} else if err == settingsInvalidCommand {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+", valid specials are :random, :empty")
+			} else if err == nil {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+"'s vote set to '"+mapName+"'")
+				bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
 			}
-			out := make([]map[string]interface{}, 0)
-			json.Unmarshal(body, &out)
-			if len(out) != 0 {
-				map_ := fmt.Sprint(out[rand.Intn(len(out))]["title"])
-				bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": map_})
+		case "votes":
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
 			}
-		case "test":
-			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"map": "Plots", "game_speed": 4})
-			bt.cl.Emit("set_force_start", room, true)
-
+			count := bt.settings.Count()
+			go func() {
+				for map_, votes := range count {
+					time.Sleep(500 * time.Millisecond)
+					if map_ == "" {
+						map_ = ":empty"
+					}
+					bt.cl.Emit("chat_message", chatroom, map_+" - "+fmt.Sprint(votes))
+				}
+			}()
 		case "empty":
-			size := "0.1"
-			if len(fields) >= 2 {
-				size = fields[1]
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
 			}
-			bt.cl.Emit("set_custom_options", room, map[string]interface{}{
-				"map":              "",
-				"city_density":     0,
-				"mountain_density": 0,
-				"swamp_density":    0,
-				"width":            size,
-				"height":           size,
-			})
+			bt.settings.Vote(fmt.Sprint(m["username"]), "")
+			bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
+		case "mountain", "mountains":
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
+			}
+			if len(fields) > 1 {
+				n, _ := strconv.Atoi(fields[1])
+				bt.settings.VoteMountain(fmt.Sprint(m["username"]), n)
+				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"mountain_density"}))
+			}
+		case "swamp", "swamps":
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
+			}
+			if len(fields) > 1 {
+				n, _ := strconv.Atoi(fields[1])
+				bt.settings.VoteSwamp(fmt.Sprint(m["username"]), n != 0)
+				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"swamp_density"}))
+			}
+		case "city", "cities":
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
+			}
+			if len(fields) > 1 {
+				n, _ := strconv.Atoi(fields[1])
+				bt.settings.VoteCity(fmt.Sprint(m["username"]), n != 0)
+				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"city_density"}))
+			}
+
 		case "team":
 			bt.cl.Emit("set_custom_team", room, bt.room.teams[author])
-
 		case "help":
 			if bt.number == 1 {
 				go func() {
 					msgs := []string{
-						"Incomplete list of commands:",
-						"* /force",
-						"* /speed [1|2|3|4]",
-						"* /map MAP",
-						"* /team",
+						"Hi! I'm a terrible bot. Possible commands:",
+						"* /trivia",
+						"* /sh",
 						"Source code: https://github.com/allen-b1/territ-v3",
+					}
+					if bt.isHost {
+						msgs = []string{
+							"Hi! I'm a terrible bot. Possible commands:",
+							"* /force",
+							"* /speed [1|2|3|4]",
+							"* /map MAP",
+							"* /team",
+							"Source code: https://github.com/allen-b1/territ-v3",
+						}
 					}
 
 					for _, msg := range msgs {
@@ -199,10 +274,18 @@ func (bt *Bot) initHandlers() {
 			bt.cl.Emit("make_custom_public", room)
 
 		case "surrender":
-			if bt.turn >= 1000 {
-				bt.cl.Disconnect()
-			} else {
-				bt.cl.Emit("chat_message", chatroom, "No.")
+			if room == "" {
+				amountRequired := (humanCount + 1) / 2
+				amountRequests := len(bt.surrenderRequests)
+
+				if isBot(m["username"].(string)) {
+					break
+				}
+				bt.surrenderRequests[m["username"].(string)] = true
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf(m["username"].(string)+" requested surrender (%d / %d)", amountRequests, amountRequired))
+				if amountRequests >= amountRequired {
+					bt.cl.Disconnect()
+				}
 			}
 		case "trivia":
 			if len(fields) < 2 {
@@ -308,12 +391,20 @@ func (bt *Bot) initHandlers() {
 		if ok {
 			teams := m["teams"].([]interface{})
 			for i := 0; i < len(players); i++ {
-				bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
+				if players[i] != nil {
+					bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
+				}
 			}
+		}
+
+		if players[0].(string) == bt.username {
+			bt.isHost = true
+		} else {
+			bt.isHost = false
 		}
 	})
 
-	bt.cl.On("ping_tile", func (data ...interface{}) {
+	bt.cl.On("ping_tile", func(data ...interface{}) {
 		tile := data[0].(float64)
 		bt.state.ping(int(tile))
 	})
@@ -381,7 +472,9 @@ func (bt *Bot) JoinCustom(room string, private bool) error {
 		if !private {
 			bt.cl.Emit("make_custom_public", room)
 		}
-		bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": 2})
+		bt.cl.Emit("update_custom_chat_recording", room, nil, false)
+		bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
+		bt.cl.Emit("set_custom_options", room, map[string]interface{}{"speed": 4})
 	}()
 	return nil
 }

@@ -58,6 +58,28 @@ func (s *state) move() (int, int, bool) {
 	armies := s.map_[2 : size+2]
 	terrain := s.map_[size+2 : size*2+2]
 
+	isGeneral := make(map[int]bool)
+	for _, general := range s.generals {
+		isGeneral[general] = true
+	}
+
+	// Conquer generals
+	for i := 0; i < size; i++ {
+		if terrain[i] == s.playerIndex && armies[i] >= 2 {
+			possibles := []int{}
+			adjs := adjacentTiles(i, width, height)
+			for _, adj := range adjs {
+				if !s.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !s.swamps[adj] && isGeneral[adj] {
+					possibles = append(possibles, adj)
+				}
+			}
+
+			if len(possibles) > 0 {
+				return i, possibles[rand.Intn(len(possibles))], false
+			}
+		}
+	}
+
 	pinged := s.pinged
 	if pinged != -1 {
 		adjs := adjacentTiles(pinged, width, height)
@@ -78,6 +100,7 @@ func (s *state) move() (int, int, bool) {
 		}
 	}
 
+	// Conquer tiles
 	for i := 0; i < size; i++ {
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {
 			possibles := []int{}
@@ -94,6 +117,7 @@ func (s *state) move() (int, int, bool) {
 		}
 	}
 
+	// Move randomly
 	for i := 0; i < 256; i++ {
 		i := rand.Intn(size)
 		if terrain[i] == s.playerIndex && armies[i] >= 2 {

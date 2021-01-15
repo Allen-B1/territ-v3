@@ -22,7 +22,7 @@ type roomInfo struct {
 }
 
 func isBot(username string) bool {
-	return strings.HasPrefix(username, "territ") || strings.HasPrefix(username, "[Bot]")
+	return strings.HasPrefix(username, "territ") || strings.HasPrefix(username, "[Bot]") || strings.Contains(username, "myssix")
 }
 
 type Bot struct {
@@ -240,51 +240,59 @@ func (bt *Bot) initHandlers() {
 				bt.settings.VoteCity(fmt.Sprint(m["username"]), n != 0)
 				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"city_density"}))
 			}
+		case "size":
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
+			}
+			if len(fields) > 1 {
+				n, _ := strconv.ParseFloat(fields[1], 64)
+				bt.settings.SetSize(n)
+				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"width", "height"}))
+			}
 
 		case "team":
 			bt.cl.Emit("set_custom_team", room, bt.room.teams[author])
 		case "help":
-			if bt.number == 1 {
-				go func() {
-					msgs := []string{
+			go func() {
+				msgs := []string{
+					"Hi! I'm a terrible bot. Possible commands:",
+					"* /trivia",
+					"* /team",
+					"Source code: https://github.com/allen-b1/territ-v3",
+				}
+				if bt.isHost && room != "" {
+					msgs = []string{
 						"Hi! I'm a terrible bot. Possible commands:",
-						"* /trivia",
-						"* /sh",
+						"* /force",
+						"* /speed [1|2|3|4]",
+						"* /map MAP",
+						"* /team",
 						"Source code: https://github.com/allen-b1/territ-v3",
 					}
-					if bt.isHost {
-						msgs = []string{
-							"Hi! I'm a terrible bot. Possible commands:",
-							"* /force",
-							"* /speed [1|2|3|4]",
-							"* /map MAP",
-							"* /team",
-							"Source code: https://github.com/allen-b1/territ-v3",
-						}
-					}
+				}
 
-					for _, msg := range msgs {
-						bt.cl.Emit("chat_message", chatroom, msg)
-						time.Sleep(500 * time.Millisecond)
-					}
-				}()
-			}
+				for _, msg := range msgs {
+					bt.cl.Emit("chat_message", chatroom, msg)
+					time.Sleep(500 * time.Millisecond)
+				}
+			}()
 
 		case "public":
 			bt.cl.Emit("make_custom_public", room)
 
 		case "surrender":
 			if room == "" {
-				amountRequired := (humanCount + 1) / 2
-				amountRequests := len(bt.surrenderRequests)
-
 				if isBot(m["username"].(string)) {
 					break
 				}
+
 				bt.surrenderRequests[m["username"].(string)] = true
+				amountRequired := (humanCount + 1) / 2
+				amountRequests := len(bt.surrenderRequests)
+
 				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf(m["username"].(string)+" requested surrender (%d / %d)", amountRequests, amountRequired))
 				if amountRequests >= amountRequired {
-					bt.cl.Disconnect()
+					bt.cl.Emit("surrender")
 				}
 			}
 		case "trivia":
@@ -443,13 +451,25 @@ func (bt *Bot) initHandlers() {
 		citiesDiff := make([]int, len(rawCitiesDiff))
 		generals := make([]int, len(rawGenerals))
 		for i, v := range rawMapDiff {
-			mapDiff[i] = int(v.(float64))
+			vf, ok := v.(float64)
+			if !ok {
+				vf = -1
+			}
+			mapDiff[i] = int(vf)
 		}
 		for i, v := range rawCitiesDiff {
-			citiesDiff[i] = int(v.(float64))
+			vf, ok := v.(float64)
+			if !ok {
+				vf = -1
+			}
+			citiesDiff[i] = int(vf)
 		}
 		for i, v := range rawGenerals {
-			generals[i] = int(v.(float64))
+			vf, ok := v.(float64)
+			if !ok {
+				vf = -1
+			}
+			generals[i] = int(vf)
 		}
 		bt.state.update(mapDiff, citiesDiff, generals)
 		from, to, half := bt.state.move()

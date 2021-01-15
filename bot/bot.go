@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"github.com/allen-b1/territ-v3/bot/alg"
 )
 
 type Server string
@@ -50,7 +51,7 @@ type Bot struct {
 	room roomInfo
 
 	// Information about the game
-	state *state
+	alg alg.Alg
 	turn  int
 }
 
@@ -405,7 +406,7 @@ func (bt *Bot) initHandlers() {
 			}
 		}
 
-		if players[0].(string) == bt.username {
+		if name, ok := players[0].(string); ok && name == bt.username {
 			bt.isHost = true
 		} else {
 			bt.isHost = false
@@ -414,7 +415,7 @@ func (bt *Bot) initHandlers() {
 
 	bt.cl.On("ping_tile", func(data ...interface{}) {
 		tile := data[0].(float64)
-		bt.state.ping(int(tile))
+		bt.alg.Ping(int(tile))
 	})
 
 	bt.cl.On("game_start", func(data ...interface{}) {
@@ -432,14 +433,15 @@ func (bt *Bot) initHandlers() {
 			}
 		}
 		teamsMap[playerIndex] = true
-		bt.state = newState(playerIndex, teamsMap)
 
 		rawSwamps := m["swamps"].([]interface{})
-		swamps := make(map[int]bool)
-		for _, swamp := range rawSwamps {
-			swamps[int(swamp.(float64))] = true
+		swamps := make([]int, len(rawSwamps))
+		for i, swamp := range rawSwamps {
+			swamps[i] = int(swamp.(float64))
 		}
-		bt.state.init(swamps)
+
+		map_ := alg.NewMap(swamps)
+		bt.alg = new(alg.Random).Init(map_, playerIndex, teamsMap)
 	})
 
 	bt.cl.On("game_update", func(data ...interface{}) {
@@ -471,8 +473,8 @@ func (bt *Bot) initHandlers() {
 			}
 			generals[i] = int(vf)
 		}
-		bt.state.update(mapDiff, citiesDiff, generals)
-		from, to, half := bt.state.move()
+		bt.alg.Map().Update(mapDiff, citiesDiff, generals)
+		from, to, half := bt.alg.Move()
 		bt.cl.Emit("attack", from, to, half)
 
 		bt.turn += 1

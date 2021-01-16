@@ -4,11 +4,30 @@ import (
 	"math/rand"
 )
 
+func weightedRandom(weights []int) int {
+	i := 0
+	boundaries := []int{0}
+	for _, weight := range weights {
+		i += weight
+		boundaries = append(boundaries, i)
+	}
+	n := rand.Intn(i)
+	for i := 0; i < len(boundaries)-1; i++ {
+		if n >= boundaries[i] && n < boundaries[i+1] {
+			return i
+		}
+	}
+	return -1
+}
+
 type Random struct {
-	map_ *Map
+	map_        *Map
 	playerIndex int
 	allies      map[int]bool
 	pinged      int
+
+	turn  int
+	order []int
 }
 
 func (a *Random) Init(map_ *Map, playerIndex int, allies map[int]bool) Alg {
@@ -16,12 +35,15 @@ func (a *Random) Init(map_ *Map, playerIndex int, allies map[int]bool) Alg {
 	a.playerIndex = playerIndex
 	a.allies = allies
 	a.pinged = -1
+	a.turn = 0
+	a.order = []int{0, 1, 2, 3}
 	return a
 }
 func (a *Random) Map() *Map {
 	return a.map_
 }
 func (a *Random) Move() (int, int, bool) {
+	a.turn += 1
 	width := a.map_.map_[0]
 	height := a.map_.map_[1]
 	size := width * height
@@ -39,13 +61,22 @@ func (a *Random) Move() (int, int, bool) {
 		isGeneral[general] = true
 	}
 
+	// Set direction to move in
+	if a.turn%25 == 0 {
+		order := rand.Intn(4)
+		a.order[0] = order
+		a.order[1] = (order + 1) % 4
+		a.order[2] = (order + 3) % 4
+		a.order[3] = (order + 2) % 4
+	}
+
 	// Conquer generals
 	for i := 0; i < size; i++ {
 		if terrain[i] == a.playerIndex && armies[i] >= 2 {
 			possibles := []int{}
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
-				if !a.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] && isGeneral[adj] {
+				if adj != -1 && !a.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] && isGeneral[adj] {
 					possibles = append(possibles, adj)
 				}
 			}
@@ -62,7 +93,7 @@ func (a *Random) Move() (int, int, bool) {
 		maxValue := 0
 		maxTile := -1
 		for _, adj := range adjs {
-			if terrain[adj] == a.playerIndex && (a.allies[terrain[pinged]] || armies[adj] > armies[pinged]+1) {
+			if adj != -1 && terrain[adj] == a.playerIndex && (a.allies[terrain[pinged]] || armies[adj] > armies[pinged]+1) {
 				if armies[adj] > maxValue {
 					maxValue = armies[adj]
 					maxTile = adj
@@ -82,7 +113,7 @@ func (a *Random) Move() (int, int, bool) {
 			possibles := []int{}
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
-				if !a.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] && cities[adj] {
+				if adj != -1 && !a.allies[terrain[adj]] && terrain[adj] != a.playerIndex && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] && cities[adj] {
 					possibles = append(possibles, adj)
 				}
 			}
@@ -96,38 +127,56 @@ func (a *Random) Move() (int, int, bool) {
 	// Conquer tiles
 	for i := 0; i < size; i++ {
 		if terrain[i] == a.playerIndex && armies[i] >= 2 {
-			possibles := []int{}
 			adjs := adjacentTiles(i, width, height)
-			for _, adj := range adjs {
-				if !a.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] {
-					possibles = append(possibles, adj)
+			for _, ind := range a.order {
+				adj := adjs[ind]
+				if adj != -1 && !a.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] {
+					return i, adj, false
 				}
-			}
-
-			if len(possibles) > 0 {
-				return i, possibles[rand.Intn(len(possibles))], false
 			}
 		}
 	}
 
 	// Move randomly
-	for i := 0; i < 256; i++ {
-		i := rand.Intn(size)
+	half := false
+	possibleFrom := make([]int, 0)
+	for i := 0; i < size; i++ {
 		if terrain[i] == a.playerIndex && armies[i] >= 2 {
-			if generals[a.playerIndex] == i && armies[i] >= 30 {
+			if generals[a.playerIndex] == i && armies[i] >= 30 && armies[i] <= 1000 {
 				continue
 			}
 
+			if generals[a.playerIndex] == i && armies[i] >= 1000 {
+				half = true
+			}
+
 			adjs := adjacentTiles(i, width, height)
-			rand.Shuffle(len(adjs), func(i, j int) {
-				adjs[i], adjs[j] = adjs[j], adjs[i]
-			})
 			for _, adj := range adjs {
-				if a.allies[terrain[adj]] {
-					return i, adj, false
+				if adj != -1 && a.allies[terrain[adj]] {
+					possibleFrom = append(possibleFrom, i)
+					break
 				}
 			}
 		}
+	}
+	if len(possibleFrom) > 0 {
+		possibleArmies := make([]int, len(possibleFrom))
+		for i, tile := range possibleFrom {
+			possibleArmies[i] = armies[tile]
+		}
+		tile := possibleFrom[weightedRandom(possibleArmies)]
+		adjs := adjacentTiles(tile, width, height)
+
+		toTile := 0
+		for _, ind := range a.order {
+			adj := adjs[ind]
+			if adj != -1 && a.allies[terrain[adj]] {
+				toTile = adj
+				break
+			}
+		}
+
+		return tile, toTile, half
 	}
 
 	return 0, 0, false
@@ -140,19 +189,19 @@ func (a *Random) Ping(tile int) {
 func adjacentTiles(tile int, width int, height int) []int {
 	row := (tile / width) | 0
 	col := tile % width
-	out := make([]int, 0)
+	out := []int{-1, -1, -1, -1}
 
 	if col < width-1 {
-		out = append(out, tile+1)
+		out[0] = tile + 1
 	}
 	if col > 0 {
-		out = append(out, tile-1)
+		out[1] = tile - 1
 	}
 	if row < height-1 {
-		out = append(out, tile+width)
+		out[2] = tile + width
 	}
 	if row > 0 {
-		out = append(out, tile-width)
+		out[3] = tile - width
 	}
 
 	return out

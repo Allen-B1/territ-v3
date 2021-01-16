@@ -3,11 +3,11 @@ package bot
 import (
 	"bitbucket.org/allenb123/socketio"
 	"fmt"
+	"github.com/allen-b1/territ-v3/bot/alg"
 	"log"
 	"strconv"
 	"strings"
 	"time"
-	"github.com/allen-b1/territ-v3/bot/alg"
 )
 
 type Server string
@@ -46,13 +46,18 @@ type Bot struct {
 
 	surrenderRequests map[string]bool
 
+	customNeedSettings bool
+	customPrivate      bool
+	customRoom         string
+	customNumForce     int
+
 	// Information about the room
 	// No way to tell *which* room, unfortunately :(
 	room roomInfo
 
 	// Information about the game
-	alg alg.Alg
-	turn  int
+	alg  alg.Alg
+	turn int
 }
 
 func New(server Server, id string, token string) (*Bot, error) {
@@ -168,7 +173,11 @@ func (bt *Bot) initHandlers() {
 			}
 
 		case "force":
-			bt.cl.Emit("set_force_start", room, true)
+			if bt.customNumForce > humanCount/2 {
+				bt.cl.Emit("set_force_start", room, true)
+			} else {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.customNumForce, humanCount/2+1))
+			}
 
 		// settings
 		case "speed":
@@ -185,15 +194,20 @@ func (bt *Bot) initHandlers() {
 				break
 			}
 			mapName := strings.Join(fields[1:], " ")
-			err := bt.settings.Vote(fmt.Sprint(m["username"]), mapName)
+			newMapName, err := bt.settings.Vote(fmt.Sprint(m["username"]), mapName)
 			if err == settingsInvalidMap {
-				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+", '"+mapName+"' is not a map")
+				bt.cl.Emit("chat_message", chatroom, mapName+"' is not a map")
+				break
 			} else if err == settingsInvalidCommand {
-				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+", valid specials are :random, :empty")
-			} else if err == nil {
-				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+"'s vote set to '"+mapName+"'")
-				bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
+				bt.cl.Emit("chat_message", chatroom, "valid special maps are :random, :empty")
+				break
+			} else if mapName != newMapName && mapName != "" {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+"'s vote set to '"+newMapName+"' (since '"+mapName+"' is not a map)")
+			} else {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprint(m["username"])+"'s vote set to '"+newMapName+"'")
 			}
+
+			bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
 		case "votes":
 			if !bt.isHost || isBot(m["username"].(string)) {
 				break
@@ -279,7 +293,9 @@ func (bt *Bot) initHandlers() {
 			}()
 
 		case "public":
-			bt.cl.Emit("make_custom_public", room)
+			if bt.isHost {
+				bt.cl.Emit("make_custom_public", room)
+			}
 
 		case "surrender":
 			if room == "" {
@@ -288,7 +304,7 @@ func (bt *Bot) initHandlers() {
 				}
 
 				bt.surrenderRequests[m["username"].(string)] = true
-				amountRequired := (humanCount + 1) / 2
+				amountRequired := humanCount/2 + 1
 				amountRequests := len(bt.surrenderRequests)
 
 				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf(m["username"].(string)+" requested surrender (%d / %d)", amountRequests, amountRequired))
@@ -406,10 +422,29 @@ func (bt *Bot) initHandlers() {
 			}
 		}
 
-		if name, ok := players[0].(string); ok && name == bt.username {
-			bt.isHost = true
-		} else {
-			bt.isHost = false
+		bt.isHost = false
+		if len(players) > 0 {
+			if name, ok := players[0].(string); ok && name == bt.username {
+				bt.isHost = true
+			}
+		}
+
+		forceNum, ok := m["numForce"].(float64)
+		if ok {
+			bt.customNumForce = int(forceNum)
+		}
+
+		if bt.customNeedSettings {
+			bt.cl.Emit("chat_message", "chat_custom_queue_"+bt.customRoom, bt.initmsg)
+			if bt.isHost {
+				if !bt.customPrivate {
+					bt.cl.Emit("make_custom_public", bt.customRoom)
+				}
+				bt.cl.Emit("update_custom_chat_recording", bt.customRoom, nil, false)
+				bt.cl.Emit("set_custom_options", bt.customRoom, map[string]interface{}{"speed": 4})
+				bt.cl.Emit("set_custom_options", bt.customRoom, bt.settings.Settings(nil))
+			}
+			bt.customNeedSettings = false
 		}
 	})
 
@@ -488,16 +523,9 @@ func (bt *Bot) initHandlers() {
 
 func (bt *Bot) JoinCustom(room string, private bool) error {
 	bt.cl.Emit("join_private", room, bt.id, bt.token)
-	go func() {
-		time.Sleep(1 * time.Second)
-		bt.cl.Emit("chat_message", "chat_custom_queue_"+room, bt.initmsg)
-		if !private {
-			bt.cl.Emit("make_custom_public", room)
-		}
-		bt.cl.Emit("update_custom_chat_recording", room, nil, false)
-		bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
-		bt.cl.Emit("set_custom_options", room, map[string]interface{}{"speed": 4})
-	}()
+	bt.customNeedSettings = true
+	bt.customPrivate = private
+	bt.customRoom = room
 	return nil
 }
 

@@ -1,10 +1,10 @@
 package alg
 
 type Map struct {
-	swamps      map[int]bool
-	map_        []int
-	cities      []int
-	generals    []int
+	swamps   map[int]bool
+	map_     []int
+	cities   []int
+	generals []int
 }
 
 func NewMap(swamps []int) *Map {
@@ -14,7 +14,7 @@ func NewMap(swamps []int) *Map {
 		m.swamps[swamp] = true
 	}
 	return m
-} 
+}
 
 func (m *Map) Update(mapDiff []int, citiesDiff []int, generals []int) {
 	m.map_ = patch(m.map_, mapDiff)

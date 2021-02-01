@@ -3,9 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/allen-b1/territ-v3/bot"
+	"log"
 	"math/rand"
 	"time"
+
+	"github.com/allen-b1/territ-v3/bot"
 )
 
 var userId string
@@ -14,6 +16,7 @@ var server string
 var roomId string
 var private bool
 var type_ string
+var name string
 
 func init() {
 	flag.StringVar(&userId, "id", "", "user id")
@@ -21,6 +24,7 @@ func init() {
 	flag.StringVar(&server, "server", "na", "generals.io server (na, eu, bot)")
 	flag.StringVar(&type_, "type", "custom", "type of game")
 	flag.StringVar(&roomId, "room", "", "custom room id ('' for FFA)")
+	flag.StringVar(&name, "name", "", "username")
 	flag.BoolVar(&private, "private", false, "private game")
 }
 
@@ -49,6 +53,10 @@ func main() {
 		panic(err)
 	}
 
+	if name != "" {
+		bt.SetUsername(name)
+	}
+
 	domain := map[bot.Server]string{
 		bot.NA:  "http://generals.io",
 		bot.BOT: "http://bot.generals.io",
@@ -61,16 +69,20 @@ func main() {
 	} else if type_ == "2v2" {
 		err = bt.Join2v2(roomId)
 		fmt.Println(domain + "/teams/" + roomId)
+	} else if type_ == "1v1" {
+		err = bt.Join1v1()
+		fmt.Println(domain + "/?queue=1v1")
 	} else {
 		err = bt.JoinCustom(roomId, private)
 		fmt.Println(domain + "/games/" + roomId)
 	}
+
 	if err != nil {
 		panic(err)
 	}
 
 	err = bt.Listen()
 	if err != nil {
-		panic(err)
+		log.Println(err)
 	}
 }

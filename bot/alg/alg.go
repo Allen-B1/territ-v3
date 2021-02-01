@@ -43,4 +43,5 @@ type Alg interface {
 	Map() *Map
 	Move() (int, int, bool)
 	Ping(tile int)
+	Command(cmd string) string
 }

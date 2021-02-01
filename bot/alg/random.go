@@ -28,6 +28,8 @@ type Random struct {
 
 	turn  int
 	order []int
+
+	disableRandom bool
 }
 
 func (a *Random) Init(map_ *Map, playerIndex int, allies map[int]bool) Alg {
@@ -138,21 +140,25 @@ func (a *Random) Move() (int, int, bool) {
 	}
 
 	// Move randomly
+	if a.disableRandom {
+		return 0, 0, false
+	}
+
 	half := false
 	possibleFrom := make([]int, 0)
 	for i := 0; i < size; i++ {
 		if terrain[i] == a.playerIndex && armies[i] >= 2 {
-			if generals[a.playerIndex] == i && armies[i] >= 30 && armies[i] <= 1000 {
+			if generals[a.playerIndex] == i && armies[i] >= 30 && armies[i] <= 100 {
 				continue
 			}
 
-			if generals[a.playerIndex] == i && armies[i] >= 1000 {
+			if generals[a.playerIndex] == i && armies[i] >= 100 {
 				half = true
 			}
 
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
-				if adj != -1 && a.allies[terrain[adj]] {
+				if adj != -1 && a.allies[terrain[adj]] && (terrain[adj] == a.playerIndex || armies[adj] < 10) {
 					possibleFrom = append(possibleFrom, i)
 					break
 				}
@@ -170,7 +176,7 @@ func (a *Random) Move() (int, int, bool) {
 		toTile := 0
 		for _, ind := range a.order {
 			adj := adjs[ind]
-			if adj != -1 && a.allies[terrain[adj]] {
+			if adj != -1 && a.allies[terrain[adj]] && (terrain[adj] == a.playerIndex || armies[adj] < 10) {
 				toTile = adj
 				break
 			}
@@ -180,6 +186,17 @@ func (a *Random) Move() (int, int, bool) {
 	}
 
 	return 0, 0, false
+}
+
+func (a *Random) Command(cmd string) string {
+	if cmd == "stop" {
+		a.disableRandom = true
+		return "Disabled random movement"
+	} else if cmd == "start" {
+		a.disableRandom = false
+		return "Enabled random movement"
+	}
+	return ""
 }
 
 func (a *Random) Ping(tile int) {

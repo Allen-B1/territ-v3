@@ -1,13 +1,14 @@
 package bot
 
 import (
-	"bitbucket.org/allenb123/socketio"
 	"fmt"
-	"github.com/allen-b1/territ-v3/bot/alg"
 	"log"
 	"strconv"
 	"strings"
 	"time"
+
+	"bitbucket.org/allenb123/socketio"
+	"github.com/allen-b1/territ-v3/bot/alg"
 )
 
 type Server string
@@ -23,7 +24,7 @@ type roomInfo struct {
 }
 
 func isBot(username string) bool {
-	return strings.HasPrefix(username, "territ") || strings.HasPrefix(username, "[Bot]") || strings.Contains(username, "myssix")
+	return strings.HasPrefix(username, "territ") || strings.HasPrefix(username, "[Bot]") || strings.HasPrefix(username, "[BOT]") || strings.Contains(username, "myssix")
 }
 
 type Bot struct {
@@ -56,8 +57,9 @@ type Bot struct {
 	room roomInfo
 
 	// Information about the game
-	alg  alg.Alg
-	turn int
+	alg     alg.Alg
+	algType string
+	turn    int
 }
 
 func New(server Server, id string, token string) (*Bot, error) {
@@ -132,7 +134,10 @@ func (bt *Bot) initHandlers() {
 
 		humanCount := 0
 		botCount := 0
-		for player, _ := range bt.room.teams {
+		for player, team := range bt.room.teams {
+			if team > 12 {
+				continue
+			}
 			if isBot(player) {
 				botCount += 1
 			} else {
@@ -173,10 +178,28 @@ func (bt *Bot) initHandlers() {
 			}
 
 		case "force":
-			if bt.customNumForce > humanCount/2 {
+			required := humanCount/2 + 1
+			if humanCount <= 1 {
+				required = 0
+			}
+			if bt.customNumForce >= required || author == "Lazerpent" || author == "person2597" {
 				bt.cl.Emit("set_force_start", room, true)
 			} else {
-				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.customNumForce, humanCount/2+1))
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.customNumForce, required))
+			}
+
+		case "alg":
+			if bt.alg == nil {
+				if strings.EqualFold(strings.Join(fields[1:], " "), "path") {
+					bt.algType = "path"
+					bt.cl.Emit("chat_message", chatroom, "Set algorithm to Path")
+				} else {
+					bt.algType = "random"
+					bt.cl.Emit("chat_message", chatroom, "Set algorithm to Random")
+				}
+			} else if len(fields) > 1 {
+				msg := bt.alg.Command(fields[1])
+				bt.cl.Emit("chat_message", chatroom, msg)
 			}
 
 		// settings
@@ -184,11 +207,22 @@ func (bt *Bot) initHandlers() {
 			if !bt.isHost || isBot(m["username"].(string)) {
 				break
 			}
-			speed := "4"
+			speed := 4
 			if len(fields) >= 2 {
-				speed = fields[1]
+				speed, _ = strconv.Atoi(fields[1])
 			}
 			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": speed})
+
+		case "players":
+			if !bt.isHost || isBot(m["username"].(string)) {
+				break
+			}
+			speed := 4
+			if len(fields) >= 2 {
+				speed, _ = strconv.Atoi(fields[1])
+			}
+			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"max_players": speed})
+
 		case "map":
 			if !bt.isHost || isBot(m["username"].(string)) {
 				break
@@ -429,9 +463,9 @@ func (bt *Bot) initHandlers() {
 			}
 		}
 
-		forceNum, ok := m["numForce"].(float64)
+		forceNum, ok := m["numForce"].([]interface{})
 		if ok {
-			bt.customNumForce = int(forceNum)
+			bt.customNumForce = len(forceNum)
 		}
 
 		if bt.customNeedSettings {
@@ -451,6 +485,10 @@ func (bt *Bot) initHandlers() {
 	bt.cl.On("ping_tile", func(data ...interface{}) {
 		tile := data[0].(float64)
 		bt.alg.Ping(int(tile))
+	})
+
+	bt.cl.On("error_set_username", func(data ...interface{}) {
+		log.Println(data[0])
 	})
 
 	bt.cl.On("game_start", func(data ...interface{}) {
@@ -476,7 +514,11 @@ func (bt *Bot) initHandlers() {
 		}
 
 		map_ := alg.NewMap(swamps)
-		bt.alg = new(alg.Random).Init(map_, playerIndex, teamsMap)
+		if bt.algType == "path" {
+			bt.alg = new(alg.Path).Init(map_, playerIndex, teamsMap)
+		} else {
+			bt.alg = new(alg.Random).Init(map_, playerIndex, teamsMap)
+		}
 	})
 
 	bt.cl.On("game_update", func(data ...interface{}) {
@@ -555,4 +597,8 @@ func (bt *Bot) Join1v1() error {
 
 func (bt *Bot) Listen() error {
 	return bt.cl.Listen()
+}
+
+func (bt *Bot) SetUsername(username string) error {
+	return bt.cl.Emit("set_username", bt.id, username)
 }

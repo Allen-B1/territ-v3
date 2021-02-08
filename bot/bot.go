@@ -470,14 +470,12 @@ func (bt *Bot) initHandlers() {
 
 		if bt.customNeedSettings {
 			bt.cl.Emit("chat_message", "chat_custom_queue_"+bt.customRoom, bt.initmsg)
-			if bt.isHost {
-				if !bt.customPrivate {
-					bt.cl.Emit("make_custom_public", bt.customRoom)
-				}
-				bt.cl.Emit("update_custom_chat_recording", bt.customRoom, nil, false)
-				bt.cl.Emit("set_custom_options", bt.customRoom, map[string]interface{}{"speed": 4})
-				bt.cl.Emit("set_custom_options", bt.customRoom, bt.settings.Settings(nil))
+			if !bt.customPrivate {
+				bt.cl.Emit("make_custom_public", bt.customRoom)
 			}
+			bt.cl.Emit("update_custom_chat_recording", bt.customRoom, nil, false)
+			bt.cl.Emit("set_custom_options", bt.customRoom, map[string]interface{}{"speed": 4})
+			bt.cl.Emit("set_custom_options", bt.customRoom, bt.settings.Settings(nil))
 			bt.customNeedSettings = false
 		}
 	})

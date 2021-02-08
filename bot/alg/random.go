@@ -148,14 +148,6 @@ func (a *Random) Move() (int, int, bool) {
 	possibleFrom := make([]int, 0)
 	for i := 0; i < size; i++ {
 		if terrain[i] == a.playerIndex && armies[i] >= 2 {
-			if generals[a.playerIndex] == i && armies[i] >= 30 && armies[i] <= 100 {
-				continue
-			}
-
-			if generals[a.playerIndex] == i && armies[i] >= 100 {
-				half = true
-			}
-
 			adjs := adjacentTiles(i, width, height)
 			for _, adj := range adjs {
 				if adj != -1 && a.allies[terrain[adj]] && (terrain[adj] == a.playerIndex || armies[adj] < 10) {
@@ -180,6 +172,10 @@ func (a *Random) Move() (int, int, bool) {
 				toTile = adj
 				break
 			}
+		}
+
+		if generals[a.playerIndex] == tile && armies[tile] >= 1000 {
+			half = true
 		}
 
 		return tile, toTile, half

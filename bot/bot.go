@@ -3,6 +3,7 @@ package bot
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -20,11 +21,21 @@ const (
 )
 
 type roomInfo struct {
-	teams map[string]int
+	teams     map[string]int
+	numForce  int
+	usernames []string
+}
+
+func (r roomInfo) isHost(username string) bool {
+	return len(r.usernames) != 0 && r.usernames[0] == username
 }
 
 func isBot(username string) bool {
 	return strings.HasPrefix(username, "territ") || strings.HasPrefix(username, "[Bot]") || strings.HasPrefix(username, "[BOT]") || strings.Contains(username, "myssix")
+}
+
+func isTerritBot(username string) bool {
+	return strings.Contains(username, "territ") || strings.Contains(username, "Terri")
 }
 
 type Bot struct {
@@ -50,7 +61,6 @@ type Bot struct {
 	customNeedSettings bool
 	customPrivate      bool
 	customRoom         string
-	customNumForce     int
 
 	// Information about the room
 	// No way to tell *which* room, unfortunately :(
@@ -67,7 +77,11 @@ func New(server Server, id string, token string) (*Bot, error) {
 	bt.id = id
 	bt.token = token
 	bt.server = server
-	bt.initmsg = "Hi! #" + fmt.Sprint(time.Now().UnixNano()%10000)
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	initmsgs := []string{"Hello there! Lucky number is #", "Hi! Lucky number is #", "My favorite number is #"}
+
+	bt.initmsg = initmsgs[rand.Intn(len(initmsgs))] + fmt.Sprint(r.Intn(100000))
 	bt.number = 1
 
 	bt.surrenderRequests = make(map[string]bool)
@@ -113,6 +127,18 @@ func (bt *Bot) initHandlers() {
 
 		if text == "force" || text == "go" {
 			bt.cl.Emit("chat_message", chatroom, "Type '/force' to force start")
+		}
+
+		if m["username"] == nil && strings.HasSuffix(text, "joined the custom lobby.") {
+			for _, username := range bt.room.usernames {
+				if username == bt.username {
+					break
+				}
+				if isTerritBot(username) {
+					return
+				}
+			}
+			bt.cl.Emit("chat_message", chatroom, "Hi, I'm territ. Type /help for commands.")
 		}
 
 		if !strings.HasPrefix(text, fmt.Sprint(bt.number)+"/") && !strings.HasPrefix(text, "/") {
@@ -178,15 +204,15 @@ func (bt *Bot) initHandlers() {
 			}
 
 		case "force":
-			required := humanCount/2 + 1
+/*			required := humanCount/2 + 1
 			if humanCount <= 1 {
 				required = 0
 			}
-			if bt.customNumForce >= required || author == "Lazerpent" || author == "person2597" {
+			if bt.room.numForce >= required || author == "person2597" {*/
 				bt.cl.Emit("set_force_start", room, true)
-			} else {
-				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.customNumForce, required))
-			}
+/*			} else {
+				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.room.numForce, required))
+			} */
 
 		case "alg":
 			if bt.alg == nil {
@@ -204,7 +230,7 @@ func (bt *Bot) initHandlers() {
 
 		// settings
 		case "speed":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			speed := 4
@@ -214,17 +240,17 @@ func (bt *Bot) initHandlers() {
 			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"game_speed": speed})
 
 		case "players":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
-			speed := 4
+			players := 4
 			if len(fields) >= 2 {
-				speed, _ = strconv.Atoi(fields[1])
+				players, _ = strconv.Atoi(fields[1])
 			}
-			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"max_players": speed})
+			bt.cl.Emit("set_custom_options", room, map[string]interface{}{"max_players": players})
 
 		case "map":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			mapName := strings.Join(fields[1:], " ")
@@ -243,7 +269,7 @@ func (bt *Bot) initHandlers() {
 
 			bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
 		case "votes":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			count := bt.settings.Count()
@@ -257,13 +283,13 @@ func (bt *Bot) initHandlers() {
 				}
 			}()
 		case "empty":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			bt.settings.Vote(fmt.Sprint(m["username"]), "")
 			bt.cl.Emit("set_custom_options", room, bt.settings.Settings(nil))
 		case "mountain", "mountains":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			if len(fields) > 1 {
@@ -272,7 +298,7 @@ func (bt *Bot) initHandlers() {
 				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"mountain_density"}))
 			}
 		case "swamp", "swamps":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			if len(fields) > 1 {
@@ -281,7 +307,7 @@ func (bt *Bot) initHandlers() {
 				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"swamp_density"}))
 			}
 		case "city", "cities":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			if len(fields) > 1 {
@@ -290,7 +316,7 @@ func (bt *Bot) initHandlers() {
 				bt.cl.Emit("set_custom_options", room, bt.settings.Settings([]string{"city_density"}))
 			}
 		case "size":
-			if !bt.isHost || isBot(m["username"].(string)) {
+			if !bt.room.isHost(bt.username) || isBot(m["username"].(string)) {
 				break
 			}
 			if len(fields) > 1 {
@@ -303,20 +329,30 @@ func (bt *Bot) initHandlers() {
 			bt.cl.Emit("set_custom_team", room, bt.room.teams[author])
 		case "help":
 			go func() {
+				log.Println(bt.room.usernames)
 				msgs := []string{
-					"Hi! I'm a terrible bot. Possible commands:",
+					"Hello! I'm territ, a terrible bot. Commands:",
 					"* /trivia",
 					"* /team",
 					"Source code: https://github.com/allen-b1/territ-v3",
 				}
-				if bt.isHost && room != "" {
+				if bt.room.isHost(bt.username) {
 					msgs = []string{
-						"Hi! I'm a terrible bot. Possible commands:",
+						"Hello! I'm territ, a terrible bot. Commands:",
 						"* /force",
 						"* /speed [1|2|3|4]",
 						"* /map MAP",
 						"* /team",
 						"Source code: https://github.com/allen-b1/territ-v3",
+					}
+				} else {
+					for _, username := range bt.room.usernames {
+						if username == bt.username {
+							break
+						}
+						if isTerritBot(username) {
+							return
+						}
 					}
 				}
 
@@ -327,9 +363,7 @@ func (bt *Bot) initHandlers() {
 			}()
 
 		case "public":
-			if bt.isHost {
-				bt.cl.Emit("make_custom_public", room)
-			}
+			bt.cl.Emit("make_custom_public", room)
 
 		case "surrender":
 			if room == "" {
@@ -342,7 +376,7 @@ func (bt *Bot) initHandlers() {
 				amountRequests := len(bt.surrenderRequests)
 
 				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf(m["username"].(string)+" requested surrender (%d / %d)", amountRequests, amountRequired))
-				if amountRequests >= amountRequired {
+				if amountRequests >= amountRequired || bt.turn <= 1 {
 					bt.cl.Emit("surrender")
 				}
 			}
@@ -448,24 +482,21 @@ func (bt *Bot) initHandlers() {
 
 		players, ok := m["usernames"].([]interface{})
 		if ok {
+			bt.room.usernames = make([]string, len(players))
+
 			teams := m["teams"].([]interface{})
 			for i := 0; i < len(players); i++ {
 				if players[i] != nil {
 					bt.room.teams[fmt.Sprint(players[i])] = int(teams[i].(float64))
 				}
-			}
-		}
 
-		bt.isHost = false
-		if len(players) > 0 {
-			if name, ok := players[0].(string); ok && name == bt.username {
-				bt.isHost = true
+				bt.room.usernames[i] = fmt.Sprint(players[i])
 			}
 		}
 
 		forceNum, ok := m["numForce"].([]interface{})
 		if ok {
-			bt.customNumForce = len(forceNum)
+			bt.room.numForce = len(forceNum)
 		}
 
 		if bt.customNeedSettings {
@@ -474,8 +505,8 @@ func (bt *Bot) initHandlers() {
 				bt.cl.Emit("make_custom_public", bt.customRoom)
 			}
 			bt.cl.Emit("update_custom_chat_recording", bt.customRoom, nil, false)
-			bt.cl.Emit("set_custom_options", bt.customRoom, map[string]interface{}{"speed": 4})
 			bt.cl.Emit("set_custom_options", bt.customRoom, bt.settings.Settings(nil))
+			bt.cl.Emit("set_custom_options", bt.customRoom, map[string]interface{}{"game_speed": 4})
 			bt.customNeedSettings = false
 		}
 	})

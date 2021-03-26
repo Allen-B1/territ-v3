@@ -2,6 +2,7 @@ package alg
 
 import (
 	"math/rand"
+	"log"
 )
 
 func weightedRandom(weights []int) int {
@@ -44,6 +45,28 @@ func (a *Random) Init(map_ *Map, playerIndex int, allies map[int]bool) Alg {
 func (a *Random) Map() *Map {
 	return a.map_
 }
+
+func (a *Random) setOrder(order int, shuffle bool) {
+	correctI := -1
+	for i, idx := range a.order {
+		if idx == order {
+			correctI = i
+			break
+		}
+	}
+
+	copy(a.order[1:correctI+1], a.order[0:correctI])
+	a.order[0] = order
+
+	if shuffle {
+		rand.Shuffle(len(a.order) - 1, func (i, j int) {
+			a.order[i+1], a.order[j+1] = a.order[j+1], a.order[i+1]
+		})
+	}
+
+	log.Println(a.order)
+}
+
 func (a *Random) Move() (int, int, bool) {
 	a.turn += 1
 	width := a.map_.map_[0]
@@ -64,12 +87,8 @@ func (a *Random) Move() (int, int, bool) {
 	}
 
 	// Set direction to move in
-	if a.turn%25 == 0 {
-		order := rand.Intn(4)
-		a.order[0] = order
-		a.order[1] = (order + 1) % 4
-		a.order[2] = (order + 3) % 4
-		a.order[3] = (order + 2) % 4
+	if a.turn%100 == 0 {
+		a.setOrder(rand.Intn(4), true)
 	}
 
 	// Conquer generals
@@ -133,6 +152,7 @@ func (a *Random) Move() (int, int, bool) {
 			for _, ind := range a.order {
 				adj := adjs[ind]
 				if adj != -1 && !a.allies[terrain[adj]] && terrain[adj] != -2 && armies[i] > armies[adj]+1 && !swamps[adj] {
+					a.setOrder(ind, false)
 					return i, adj, false
 				}
 			}
@@ -169,6 +189,7 @@ func (a *Random) Move() (int, int, bool) {
 		for _, ind := range a.order {
 			adj := adjs[ind]
 			if adj != -1 && a.allies[terrain[adj]] && (terrain[adj] == a.playerIndex || armies[adj] < 10) {
+				a.setOrder(ind, true)
 				toTile = adj
 				break
 			}

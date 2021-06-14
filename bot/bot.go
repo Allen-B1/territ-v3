@@ -94,7 +94,7 @@ func New(server Server, id string, token string) (*Bot, error) {
 	bt.trivia = make(map[string]*Trivia)
 
 	var err error
-	bt.cl, err = socketio.New(string(server), false)
+	bt.cl, err = socketio.New(string(server), true)
 	if err != nil {
 		return nil, err
 	}

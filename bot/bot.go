@@ -1,12 +1,16 @@
 package bot
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"bitbucket.org/allenb123/socketio"
 	"github.com/allen-b1/territ-v3/bot/alg"
@@ -93,8 +97,12 @@ func New(server Server, id string, token string) (*Bot, error) {
 
 	bt.trivia = make(map[string]*Trivia)
 
+	// DO NOT TRY THIS AT HOME
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dialer := websocket.Dialer{ReadBufferSize: 1024, WriteBufferSize: 1024, TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+
 	var err error
-	bt.cl, err = socketio.New(string(server), true)
+	bt.cl, err = socketio.New(string(server), true, dialer)
 	if err != nil {
 		return nil, err
 	}
@@ -204,15 +212,15 @@ func (bt *Bot) initHandlers() {
 			}
 
 		case "force":
-/*			required := humanCount/2 + 1
-			if humanCount <= 1 {
-				required = 0
-			}
-			if bt.room.numForce >= required || author == "person2597" {*/
-				bt.cl.Emit("set_force_start", room, true)
-/*			} else {
-				bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.room.numForce, required))
-			} */
+			/*			required := humanCount/2 + 1
+						if humanCount <= 1 {
+							required = 0
+						}
+						if bt.room.numForce >= required || author == "person2597" {*/
+			bt.cl.Emit("set_force_start", room, true)
+			/*			} else {
+						bt.cl.Emit("chat_message", chatroom, fmt.Sprintf("not enough force (%d / %d)", bt.room.numForce, required))
+					} */
 
 		case "alg":
 			if bt.alg == nil {
@@ -543,7 +551,7 @@ func (bt *Bot) initHandlers() {
 		}
 
 		map_ := alg.NewMap(swamps)
-		if bt.algType == "path" {
+		if bt.algType != "random" {
 			bt.alg = new(alg.Path).Init(map_, playerIndex, teamsMap)
 		} else {
 			bt.alg = new(alg.Random).Init(map_, playerIndex, teamsMap)

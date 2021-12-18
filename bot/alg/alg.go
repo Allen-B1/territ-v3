@@ -1,5 +1,12 @@
 package alg
 
+const (
+	TerrainEmpty    = -1
+	TerrainMountain = -2
+	TerrainFog      = -3
+	TerrainObstacle = -4
+)
+
 type Map struct {
 	swamps   map[int]bool
 	map_     []int
@@ -20,6 +27,24 @@ func (m *Map) Update(mapDiff []int, citiesDiff []int, generals []int) {
 	m.map_ = patch(m.map_, mapDiff)
 	m.cities = patch(m.cities, citiesDiff)
 	m.generals = generals
+}
+
+func (m *Map) terrain() []int {
+	width := m.map_[0]
+	height := m.map_[1]
+	size := width * height
+	return m.map_[size+2 : size*2+2]
+}
+
+func (m *Map) armies() []int {
+	width := m.map_[0]
+	height := m.map_[1]
+	size := width * height
+	return m.map_[2 : size+2]
+}
+
+func (m *Map) dimen() (int, int) {
+	return m.map_[0], m.map_[1]
 }
 
 func patch(old []int, diff []int) []int {
